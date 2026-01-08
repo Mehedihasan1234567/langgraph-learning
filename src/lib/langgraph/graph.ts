@@ -4,58 +4,72 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { SystemMessage } from "@langchain/core/messages";
 import { checkpointer, ensureCheckpointerSetup } from "./checkpointer";
 import { model } from "./model";
-import { tools } from "./tools"; // টুল ইমপোর্ট
+import { tools } from "./tools"; // Import tools
 
-// ১. মডেলের সাথে টুল বাইন্ড (Bind) করা
-// এতে মডেল জানবে তার কাছে "calculator" নামে একটি অস্ত্র আছে
+// 1. Bind tools to the model
+// This lets the model know what tools it can call.
 const modelWithTools = model.bindTools(tools);
 
-
-// ২. এজেন্ট নোড (যেখানে মডেল চিন্তা করবে)
+// 2. Agent node: this is where the model will think
 async function agentNode(state: typeof MessagesAnnotation.State) {
   const messages = [
-    new SystemMessage("You are a helpful assistant. Use the calculator tool if asked for math."),
+    new SystemMessage(
+      "You are a helpful assistant. Your primary goal is to provide accurate and helpful information.\n\n" +
+        "When responding, you MUST follow this sequence:\n" +
+        "1. First, think about the user's request. Put all your reasoning, thoughts, and planning inside `<thinking>` XML tags. This is a space for you to plan your approach, consider which tools to use (if any), and outline your steps. This part will be hidden from the user but is crucial for your process.\n" +
+        "2. After the `<thinking>` block, provide the final, user-facing answer. This answer should be clear, concise, and directly address the user's query.\n\n" +
+        "Example:\n" +
+        "User: What is 2 + 2?\n" +
+        "Assistant:\n" +
+        "<thinking>\n" +
+        "The user is asking a simple math question. I need to add 2 and 2. The `calculator` tool is perfect for this. I will call the calculator tool with `a=2` and `b=2`.\n" +
+        "</thinking>\n" +
+        "The sum of 2 and 2 is 4.",
+    ),
     ...state.messages,
   ];
   const response = await modelWithTools.invoke(messages);
   return { messages: [response] };
 }
 
-// ৩. ডিসিশন মেকিং ফাংশন (Conditional Edge)
-// মডেল কি টুল কল করতে চায়? নাকি উত্তর দিতে চায়?
+// 3. Decision-making function (Conditional Edge)
+// Does the model want to call a tool? Or is it finished?
 function shouldContinue(state: typeof MessagesAnnotation.State) {
   const lastMessage = state.messages[state.messages.length - 1];
 
-  // যদি মডেলের রেসপন্সে tool_calls থাকে, তাহলে টুল নোডে পাঠাও
-  if (lastMessage.additional_kwargs.tool_calls || (lastMessage as any).tool_calls?.length > 0) {
+  // If the model's response has tool calls, route to the tool node
+  if (
+    lastMessage.additional_kwargs.tool_calls ||
+    (lastMessage as any).tool_calls?.length > 0
+  ) {
     return "tools";
   }
-  // নাহলে শেষ করো
+  // Otherwise, end the conversation
   return "__end__";
 }
 
-// ৪. টুল নোড তৈরি (Prebuilt)
+// 4. Prebuilt Tool Node
 const toolNode = new ToolNode(tools);
 
-// ৫. গ্রাফ কনস্ট্রাকশন
+// 5. Graph Construction
 const workflow = new StateGraph(MessagesAnnotation)
   .addNode("agent", agentNode)
-  .addNode("tools", toolNode) // টুল নোড যোগ করা হলো
+  .addNode("tools", toolNode) // Add the tool node
   .addEdge("__start__", "agent")
-  
-  // কন্ডিশনাল এজ: এজেন্ট থেকে সিদ্ধান্ত নেবে কোথায় যাবে
-  .addConditionalEdges(
-    "agent",
-    shouldContinue,
-    {
-      tools: "tools", // যদি টুল দরকার হয় -> tools নোডে যাও
-      __end__: "__end__" // যদি দরকার না হয় -> শেষ করো
-    }
-  )
-  
-  // টুল কাজ শেষ করলে আবার এজেন্টের কাছে ফিরে আসবে (রেজাল্ট জানানোর জন্য)
+
+  // Conditional Edge: from agent, decide where to go next
+  .addConditionalEdges("agent", shouldContinue, {
+    tools: "tools", // If tools are needed -> go to the tools node
+    __end__: "__end__", // If not -> end
+  })
+
+  // If tools are called, loop back to the agent to let it process the results
   .addEdge("tools", "agent");
+
+// Ensure the checkpointer database tables are created
 ensureCheckpointerSetup().catch(console.error);
+
+// Compile the graph
 export const graph = workflow.compile({
- checkpointer: checkpointer,
+  checkpointer: checkpointer,
 });

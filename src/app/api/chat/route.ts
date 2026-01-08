@@ -1,51 +1,165 @@
 import { graph } from "@/lib/langgraph/graph";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { auth } from "@/lib/auth";
+import { HumanMessage } from "@langchain/core/messages";
+import { after } from "next/server";
+import { revalidatePath } from "next/cache";
+import { getChat, updateChat } from "@/lib/db/actions";
+import { generateChatTitle } from "@/lib/langgraph/title-generator";
 
 export const maxDuration = 60;
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
+// Define types for the request payload for type safety
+interface ApiChatMessagePart {
+  type: "text";
+  text: string;
+}
+
+interface ApiChatMessage {
+  role: "user" | "assistant" | "system";
+  content?: string; // For older SDK versions
+  parts?: ApiChatMessagePart[]; // For AI SDK v4+
+}
+
+interface ApiRequestBody {
+  messages: ApiChatMessage[];
+  thread_id: string;
 }
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
-
-  const validMessages = messages.map((m: Message) => {
-    if (m.role === "user") {
-      return new HumanMessage(m.content);
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return new Response("Unauthorized", { status: 401 });
     }
-    return new AIMessage(m.content);
-  });
+    const userId = session.user.id;
 
-  // Generate a random thread_id for now
-  const thread_id = Math.random().toString(36).substring(7);
+    const { messages, thread_id: providedThreadId } =
+      (await req.json()) as ApiRequestBody;
 
-  const stream = await graph.streamEvents(
-    {
-      messages: validMessages,
-    },
-    {
-      version: "v2",
-      configurable: {
-        thread_id,
-      },
-    }
-  );
-
-  const textStream = new ReadableStream({
-    async start(controller) {
-      for await (const event of stream) {
-        if (
-          event.event === "on_chat_model_stream" &&
-          event.data.chunk.content
-        ) {
-          controller.enqueue(event.data.chunk.content);
-        }
+    // Security Check: If a thread_id is provided, ensure it belongs to the user.
+    if (providedThreadId) {
+      const chat = await getChat(providedThreadId);
+      if (!chat || chat.userId !== userId) {
+        return new Response("Forbidden", { status: 403 });
       }
-      controller.close();
-    },
-  });
+    }
 
-  return new Response(textStream);
+    // The thread_id is now guaranteed to be safe if it exists.
+    const thread_id = providedThreadId;
+
+    // Extract only the new user message(s) - LangGraph checkpointer will handle loading previous state
+    const newUserMessages = messages
+      .filter((m) => m.role === "user")
+      .map((m) => {
+        let content = "";
+
+        // Handle AI SDK v4+ parts structure
+        if (m.parts && Array.isArray(m.parts)) {
+          content = m.parts
+            .filter((p) => p.type === "text")
+            .map((p) => p.text)
+            .join("");
+        } else if (m.content) {
+          // Fallback: older content structure
+          content = m.content;
+        }
+
+        const safeContent = content || "";
+        return new HumanMessage({ content: safeContent });
+      });
+
+    // Get the first user message for title generation
+    const firstUserMessage = (newUserMessages[0]?.content as string) || "";
+
+    // Check if this is a new chat (exactly 1 user message in the conversation)
+    // We need to check the existing state to see if there are previous messages
+    let isNewChat = false;
+    try {
+      const existingState = await graph.getState({
+        configurable: { thread_id },
+      });
+      // Count user messages in existing state
+      const existingUserMessages =
+        existingState.values?.messages?.filter(
+          (msg: any): msg is HumanMessage => msg instanceof HumanMessage,
+        ) || [];
+      // If no existing user messages and we have exactly 1 new user message, it's a new chat
+      isNewChat =
+        existingUserMessages.length === 0 && newUserMessages.length === 1;
+    } catch (error) {
+      // If state doesn't exist, it's a new chat
+      isNewChat = newUserMessages.length === 1;
+    }
+
+    // LangGraph streaming with checkpointer
+    const langGraphStream = await graph.streamEvents(
+      {
+        messages: newUserMessages,
+      },
+      {
+        version: "v2",
+        configurable: {
+          thread_id,
+        },
+      },
+    );
+
+    // Auto-Title Feature: Generate title in background for new chats
+    if (isNewChat && firstUserMessage) {
+      after(async () => {
+        try {
+          const title = await generateChatTitle(firstUserMessage);
+          await updateChat(thread_id, title);
+          // Revalidate paths to update sidebar
+          revalidatePath("/chat", "layout");
+          revalidatePath("/", "layout");
+        } catch (error) {
+          console.error("Error generating/updating chat title:", error);
+        }
+      });
+    }
+
+    // Return thread_id in response headers so client can track it
+    const responseHeaders = new Headers({
+      "Content-Type": "text/plain; charset=utf-8",
+      "Transfer-Encoding": "chunked",
+      "X-Thread-ID": thread_id,
+    });
+
+    // Stream response using LangGraph events
+    const textStream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+
+        try {
+          for await (const event of langGraphStream) {
+            // Extract streaming chunks from the model
+            if (
+              event.event === "on_chat_model_stream" &&
+              event.data.chunk &&
+              event.data.chunk.content
+            ) {
+              const text = event.data.chunk.content;
+              controller.enqueue(encoder.encode(text));
+            }
+          }
+        } catch (e) {
+          console.error("Stream Error:", e);
+          controller.enqueue(encoder.encode("\n[Error generating response]"));
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(textStream, {
+      headers: responseHeaders,
+    });
+  } catch (error: any) {
+    console.error("API Error:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }

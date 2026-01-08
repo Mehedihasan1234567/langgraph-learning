@@ -1,15 +1,16 @@
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { Pool } from "pg";
+import { env } from "@/lib/env";
 
-// আপনার ডাটাবেস কানেকশন পুল তৈরি করা হচ্ছে
+// Create a new connection pool for the checkpointer
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: env.DATABASE_URL,
 });
 
-// এই লাইনটি জরুরি: checkpointer এক্সপোর্ট করা হচ্ছে
+// Export the checkpointer instance
 export const checkpointer = new PostgresSaver(pool);
 
-// টেবিল সেটআপ ফাংশন এক্সপোর্ট করা হচ্ছে
+// Export a function to set up the checkpointer tables
 export async function ensureCheckpointerSetup() {
-    await checkpointer.setup();
+  await checkpointer.setup();
 }
