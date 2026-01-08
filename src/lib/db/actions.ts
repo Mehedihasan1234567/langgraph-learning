@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { chats } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import type { Chat } from "@/db/schema";
 
 /**
@@ -93,7 +93,7 @@ export async function getChat(chatId: string): Promise<Chat | null> {
  */
 export async function updateChat(
   chatId: string,
-  title?: string
+  title?: string,
 ): Promise<Chat | null> {
   try {
     if (!chatId || typeof chatId !== "string") {
@@ -132,6 +132,13 @@ export async function deleteChat(chatId: string): Promise<boolean> {
       throw new Error("Invalid chatId provided");
     }
 
+    // Clean up LangGraph checkpoints (message history)
+    // Note: Table names 'checkpoints' and 'checkpoint_writes' are default for PostgresSaver
+    await db.execute(sql`DELETE FROM checkpoints WHERE thread_id = ${chatId}`);
+    await db.execute(
+      sql`DELETE FROM checkpoint_writes WHERE thread_id = ${chatId}`,
+    );
+
     const result = await db.delete(chats).where(eq(chats.id, chatId));
 
     return (result.rowCount ?? 0) > 0;
@@ -140,4 +147,3 @@ export async function deleteChat(chatId: string): Promise<boolean> {
     return false;
   }
 }
-

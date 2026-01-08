@@ -23,7 +23,17 @@ export async function handleNewChatAction() {
 }
 
 export async function handleDeleteChatAction(chatId: string) {
-  // TODO: Add check to ensure the user deleting the chat is the owner.
+  const session = await auth();
+  if (!session?.user?.id) {
+    return;
+  }
+  const userId = session.user.id;
+
+  const chat = await getChat(chatId);
+  if (!chat || chat.userId !== userId) {
+    return;
+  }
+
   await deleteChat(chatId);
   revalidatePath("/", "layout");
 }

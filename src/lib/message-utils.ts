@@ -9,7 +9,7 @@ import { HumanMessage, AIMessage } from "@langchain/core/messages";
  */
 export function convertLangChainToAISDK(
   langChainMessages: BaseMessage[],
-  threadId?: string
+  threadId?: string,
 ): Array<{
   id: string;
   role: "user" | "assistant" | "system";
@@ -18,19 +18,24 @@ export function convertLangChainToAISDK(
   return langChainMessages
     .filter((msg) => {
       // Filter out system messages from the UI (they're handled internally)
-      // Only include HumanMessage and AIMessage
-      return msg instanceof HumanMessage || msg instanceof AIMessage;
+      // Robustly check for HumanMessage and AIMessage (including Chunks)
+      const type = msg.getType ? msg.getType() : "";
+      return (
+        type === "human" ||
+        type === "ai" ||
+        msg instanceof HumanMessage ||
+        msg instanceof AIMessage
+      );
     })
     .map((msg, index) => {
       // Determine role based on message type
-      let role: "user" | "assistant" | "system";
-      
-      if (msg instanceof HumanMessage) {
+      let role: "user" | "assistant" | "system" = "system";
+      const type = msg.getType ? msg.getType() : "";
+
+      if (type === "human" || msg instanceof HumanMessage) {
         role = "user";
-      } else if (msg instanceof AIMessage) {
+      } else if (type === "ai" || msg instanceof AIMessage) {
         role = "assistant";
-      } else {
-        role = "system";
       }
 
       // Extract content from message
@@ -63,4 +68,3 @@ export function convertLangChainToAISDK(
       };
     });
 }
-

@@ -247,6 +247,7 @@ export default function ChatPageClient({
                         <ReasoningBlock
                           content={parsed.reasoning || ""}
                           isLoading={isCurrentlyStreaming}
+                          defaultOpen={!hasAnswer}
                         />
                       </div>
                     )}

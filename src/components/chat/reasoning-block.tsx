@@ -13,16 +13,19 @@ import { cn } from "@/lib/utils";
 interface ReasoningBlockProps {
   content: string;
   isLoading?: boolean;
+  defaultOpen?: boolean;
 }
 
-export function ReasoningBlock({ content, isLoading = false }: ReasoningBlockProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function ReasoningBlock({
+  content,
+  isLoading = false,
+  defaultOpen = false,
+}: ReasoningBlockProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const hasContent = content && content.trim().length > 0;
 
   // Determine the text to display based on loading state
-  const statusText = isLoading 
-    ? "চিন্তা করা হচ্ছে..." 
-    : "চিন্তা সম্পন্ন";
+  const statusText = isLoading ? "চিন্তা করা হচ্ছে..." : "চিন্তা সম্পন্ন";
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
@@ -33,13 +36,13 @@ export function ReasoningBlock({ content, isLoading = false }: ReasoningBlockPro
               <Brain
                 className={cn(
                   "w-4 h-4 text-purple-400 shrink-0 transition-opacity duration-200",
-                  isLoading && "animate-pulse"
+                  isLoading && "animate-pulse",
                 )}
               />
-              <span 
+              <span
                 className={cn(
                   "text-xs text-purple-300 font-medium transition-all duration-300",
-                  !isLoading && "opacity-80"
+                  !isLoading && "opacity-80",
                 )}
               >
                 {statusText}
@@ -49,7 +52,7 @@ export function ReasoningBlock({ content, isLoading = false }: ReasoningBlockPro
               <ChevronDown
                 className={cn(
                   "w-4 h-4 text-purple-400 shrink-0 transition-transform duration-300 ease-in-out",
-                  isOpen && "transform rotate-180"
+                  isOpen && "transform rotate-180",
                 )}
               />
             )}
@@ -70,4 +73,3 @@ export function ReasoningBlock({ content, isLoading = false }: ReasoningBlockPro
     </Collapsible>
   );
 }
-

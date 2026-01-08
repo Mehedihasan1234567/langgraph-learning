@@ -47,26 +47,28 @@ export async function POST(req: Request) {
     // The thread_id is now guaranteed to be safe if it exists.
     const thread_id = providedThreadId;
 
-    // Extract only the new user message(s) - LangGraph checkpointer will handle loading previous state
-    const newUserMessages = messages
-      .filter((m) => m.role === "user")
-      .map((m) => {
-        let content = "";
+    // Extract only the LAST message - LangGraph checkpointer handles the history.
+    // The client sends the full history, but we only want to process the new input.
+    const lastMessage = messages[messages.length - 1];
+    const newUserMessages = [];
 
-        // Handle AI SDK v4+ parts structure
-        if (m.parts && Array.isArray(m.parts)) {
-          content = m.parts
-            .filter((p) => p.type === "text")
-            .map((p) => p.text)
-            .join("");
-        } else if (m.content) {
-          // Fallback: older content structure
-          content = m.content;
-        }
+    if (lastMessage && lastMessage.role === "user") {
+      let content = "";
 
-        const safeContent = content || "";
-        return new HumanMessage({ content: safeContent });
-      });
+      // Handle AI SDK v4+ parts structure
+      if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
+        content = lastMessage.parts
+          .filter((p) => p.type === "text")
+          .map((p) => p.text)
+          .join("");
+      } else if (lastMessage.content) {
+        // Fallback: older content structure
+        content = lastMessage.content;
+      }
+
+      const safeContent = content || "";
+      newUserMessages.push(new HumanMessage({ content: safeContent }));
+    }
 
     // Get the first user message for title generation
     const firstUserMessage = (newUserMessages[0]?.content as string) || "";
