@@ -1,6 +1,7 @@
 // src/lib/langgraph/tools.ts
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import { getWeatherTool, getCoordinates } from "./weather-tool";
 
 // ১. একটি সাধারণ যোগ করার টুল
 export const calculatorTool = tool(
@@ -9,13 +10,14 @@ export const calculatorTool = tool(
   },
   {
     name: "calculator",
-    description: "Use this tool strictly when the user asks to add two numbers.",
+    description:
+      "Use this tool strictly when the user asks to add two numbers.",
     schema: z.object({
       a: z.number().describe("First number"),
       b: z.number().describe("Second number"),
     }),
-  }
+  },
 );
 
 // সব টুল একটি অ্যারেতে এক্সপোর্ট করা
-export const tools = [calculatorTool];
+export const tools = [calculatorTool, getCoordinates, getWeatherTool];

@@ -1,18 +1,17 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { useChat } from "@ai-sdk/react";
-import { TextStreamChatTransport } from "ai";
+import { useChat } from "ai/react";
 import { Send, Bot, User, Sparkles } from "lucide-react";
 import { ChatLayout } from "@/components/ChatLayout";
 import { ReasoningBlock } from "@/components/chat/reasoning-block";
 import { ArtifactsPanel } from "@/components/chat/ArtifactsPanel";
 import { ShowCodeButton } from "@/components/chat/ShowCodeButton";
 import { SuggestionChips } from "@/components/chat/SuggestionChips";
+import { WeatherCard } from "@/components/chat/weather-card";
 import {
   parseReasoning,
   extractCodeBlocks,
-  hasCodeBlocks,
   extractSuggestions,
   generateMockSuggestions,
 } from "@/lib/utils";
@@ -68,21 +67,17 @@ export default function ChatPageClient({
   const [input, setInput] = useState("");
   const [artifactContent, setArtifactContent] = useState<React.ReactNode>(null);
 
-  const { messages, sendMessage, status, setMessages } = useChat({
-    // TextStreamChatTransport ব্যবহার করে plain text stream handle করা
-    transport: new TextStreamChatTransport({
-      api: "/api/chat",
-      body: () => ({
-        thread_id: threadId,
-      }),
-    }),
+  const { messages, append, isLoading, setMessages } = useChat({
+    api: "/api/chat",
+    body: {
+      thread_id: threadId,
+    },
     onError: (error) => {
       console.error("Chat Error:", error);
     },
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isLoading = status === "submitted" || status === "streaming";
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -90,28 +85,25 @@ export default function ChatPageClient({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, status]);
+  }, [messages, isLoading]);
 
   // Set initial messages when component mounts
   useEffect(() => {
     if (initialMessages.length > 0) {
-      setMessages(initialMessages);
+      setMessages(initialMessages as any);
     }
   }, []); // Only run once on mount
 
   // Message থেকে text content extract করা (parts structure handle করা)
   const getMessageText = (message: (typeof messages)[0]) => {
     // parts array থেকে text parts join করা
-    if (message.parts && Array.isArray(message.parts)) {
-      return message.parts
-        .filter(
-          (part): part is { type: "text"; text: string } =>
-            part.type === "text",
-        )
-        .map((part) => part.text)
+    if ((message as any).parts && Array.isArray((message as any).parts)) {
+      return (message as any).parts
+        .filter((part: any) => part.type === "text")
+        .map((part: any) => part.text)
         .join("");
     }
-    return "";
+    return message.content || "";
   };
 
   // Parse message content to extract reasoning and answer
@@ -140,9 +132,9 @@ export default function ChatPageClient({
 
     const userMessage = input.trim();
     setInput("");
-    sendMessage({
+    append({
       role: "user",
-      parts: [{ type: "text", text: userMessage }],
+      content: userMessage,
     });
   };
 
@@ -184,7 +176,7 @@ export default function ChatPageClient({
             </h1>
             <p className="text-xs text-slate-400">Powered by LangGraph</p>
           </div>
-          {status === "streaming" && (
+          {isLoading && (
             <div className="ml-auto flex items-center gap-2 text-xs text-violet-400">
               <div className="w-2 h-2 bg-violet-400 rounded-full animate-pulse" />
               Streaming...
@@ -204,8 +196,7 @@ export default function ChatPageClient({
           {messages.map((m, index) => {
             const isLastAssistantMessage =
               m.role === "assistant" && index === messages.length - 1;
-            const isCurrentlyStreaming =
-              isLastAssistantMessage && status === "streaming";
+            const isCurrentlyStreaming = isLastAssistantMessage && isLoading;
 
             // Only parse reasoning for assistant messages
             const parsed =
@@ -282,6 +273,54 @@ export default function ChatPageClient({
                       )}
                     </div>
                   )}
+
+                  {/* Render Tool Invocations (Generative UI) */}
+                  {(m as any).toolInvocations?.map((toolInvocation: any) => {
+                    const toolCallId = toolInvocation.toolCallId;
+                    const toolName = toolInvocation.toolName;
+
+                    // Only handle get_weather tool
+                    if (toolName === "get_weather") {
+                      // Robustly handle result parsing
+                      let weatherData = undefined;
+                      const rawResult =
+                        "result" in toolInvocation
+                          ? toolInvocation.result
+                          : undefined;
+
+                      if (rawResult) {
+                        try {
+                          // Check if it's a string that needs parsing
+                          if (typeof rawResult === "string") {
+                            weatherData = JSON.parse(rawResult);
+                          } else {
+                            // It's already an object
+                            weatherData = rawResult;
+                          }
+                        } catch (e) {
+                          console.error(
+                            "Failed to parse weather tool result:",
+                            e,
+                            rawResult,
+                          );
+                        }
+                      }
+
+                      // Determine loading state (loading if no result yet)
+                      const isToolLoading = !("result" in toolInvocation);
+
+                      return (
+                        <div key={toolCallId} className="w-full mt-2">
+                          <WeatherCard
+                            isLoading={isToolLoading}
+                            data={weatherData}
+                          />
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
                 </div>
 
                 {m.role === "user" && (
@@ -296,25 +335,23 @@ export default function ChatPageClient({
         </div>
 
         {/* Suggestions */}
-        {suggestions.length > 0 &&
-          messages.length > 0 &&
-          status !== "streaming" && (
-            <div className="px-4 md:px-6 pb-2">
-              <SuggestionChips
-                suggestions={suggestions}
-                onSelect={(suggestion) => {
-                  setInput(suggestion);
-                  // Auto-submit after a short delay
-                  setTimeout(() => {
-                    sendMessage({
-                      role: "user",
-                      parts: [{ type: "text", text: suggestion }],
-                    });
-                  }, 100);
-                }}
-              />
-            </div>
-          )}
+        {suggestions.length > 0 && messages.length > 0 && !isLoading && (
+          <div className="px-4 md:px-6 pb-2">
+            <SuggestionChips
+              suggestions={suggestions}
+              onSelect={(suggestion) => {
+                setInput(suggestion);
+                // Auto-submit after a short delay
+                setTimeout(() => {
+                  append({
+                    role: "user",
+                    content: suggestion,
+                  });
+                }, 100);
+              }}
+            />
+          </div>
+        )}
 
         {/* Input Area */}
         <div className="p-4 md:p-6 border-t border-purple-900/30 bg-[#1a0d2e]/50 backdrop-blur-md shrink-0">

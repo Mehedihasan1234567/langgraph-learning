@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getChat, updateChat } from "@/lib/db/actions";
 import { generateChatTitle } from "@/lib/langgraph/title-generator";
+import { LangChainAdapter } from "ai";
 
 export const maxDuration = 60;
 
@@ -74,7 +75,6 @@ export async function POST(req: Request) {
     const firstUserMessage = (newUserMessages[0]?.content as string) || "";
 
     // Check if this is a new chat (exactly 1 user message in the conversation)
-    // We need to check the existing state to see if there are previous messages
     let isNewChat = false;
     try {
       const existingState = await graph.getState({
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     }
 
     // LangGraph streaming with checkpointer
-    const langGraphStream = await graph.streamEvents(
+    const stream = await graph.streamEvents(
       {
         messages: newUserMessages,
       },
@@ -121,42 +121,8 @@ export async function POST(req: Request) {
       });
     }
 
-    // Return thread_id in response headers so client can track it
-    const responseHeaders = new Headers({
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-      "X-Thread-ID": thread_id,
-    });
-
-    // Stream response using LangGraph events
-    const textStream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-
-        try {
-          for await (const event of langGraphStream) {
-            // Extract streaming chunks from the model
-            if (
-              event.event === "on_chat_model_stream" &&
-              event.data.chunk &&
-              event.data.chunk.content
-            ) {
-              const text = event.data.chunk.content;
-              controller.enqueue(encoder.encode(text));
-            }
-          }
-        } catch (e) {
-          console.error("Stream Error:", e);
-          controller.enqueue(encoder.encode("\n[Error generating response]"));
-        } finally {
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(textStream, {
-      headers: responseHeaders,
-    });
+    // Use LangChainAdapter to stream the response
+    return LangChainAdapter.toDataStreamResponse(stream);
   } catch (error: any) {
     console.error("API Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {

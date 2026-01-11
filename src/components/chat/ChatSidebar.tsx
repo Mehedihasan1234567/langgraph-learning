@@ -162,29 +162,32 @@ export async function ChatSidebar({ userId, currentChatId }: ChatSidebarProps) {
 // Chat Item Component
 function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
   return (
-    <Link href={`/chat/${chat.id}`}>
-      <div
-        className={cn(
-          "group relative p-3 rounded-lg cursor-pointer transition-colors",
-          "hover:bg-gray-100 border border-transparent hover:border-gray-200",
-          isActive && "bg-violet-50 border-violet-200",
-        )}
+    <div
+      className={cn(
+        "group relative flex items-center p-2 rounded-lg transition-colors",
+        "hover:bg-gray-100 border border-transparent hover:border-gray-200",
+        isActive && "bg-violet-50 border-violet-200",
+      )}
+    >
+      <Link
+        href={`/chat/${chat.id}`}
+        className="flex-1 flex items-start gap-2 min-w-0 pr-8"
       >
-        <div className="flex items-start gap-2">
-          <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-gray-900 truncate">
-              {chat.title}
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] text-gray-500">
-                {formatTimeBengali(chat.updatedAt)}
-              </span>
-            </div>
+        <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-gray-900 truncate">
+            {chat.title}
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[10px] text-gray-500">
+              {formatTimeBengali(chat.updatedAt)}
+            </span>
           </div>
-          <DeleteChatButton chatId={chat.id} />
         </div>
+      </Link>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <DeleteChatButton chatId={chat.id} />
       </div>
-    </Link>
+    </div>
   );
 }

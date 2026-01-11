@@ -1,6 +1,6 @@
 "use server";
 
-import { createChat, deleteChat } from "@/lib/db/actions";
+import { createChat, deleteChat, getChat } from "@/lib/db/actions";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 

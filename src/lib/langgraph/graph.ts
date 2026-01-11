@@ -14,17 +14,15 @@ const modelWithTools = model.bindTools(tools);
 async function agentNode(state: typeof MessagesAnnotation.State) {
   const messages = [
     new SystemMessage(
-      "You are a helpful assistant. Your primary goal is to provide accurate and helpful information.\n\n" +
+      "You are a helpful assistant. Always answer in Bangla.\n\n" +
         "When responding, you MUST follow this sequence:\n" +
         "1. First, think about the user's request. Put all your reasoning, thoughts, and planning inside `<thinking>` XML tags. This is a space for you to plan your approach, consider which tools to use (if any), and outline your steps. This part will be hidden from the user but is crucial for your process.\n" +
-        "2. After the `<thinking>` block, provide the final, user-facing answer. This answer should be clear, concise, and directly address the user's query.\n\n" +
-        "Example:\n" +
-        "User: What is 2 + 2?\n" +
-        "Assistant:\n" +
-        "<thinking>\n" +
-        "The user is asking a simple math question. I need to add 2 and 2. The `calculator` tool is perfect for this. I will call the calculator tool with `a=2` and `b=2`.\n" +
-        "</thinking>\n" +
-        "The sum of 2 and 2 is 4.",
+        "2. After the `<thinking>` block, provide the final, user-facing answer. This answer should be clear, concise, and directly address the user's query.\n" +
+        "3. Convert all English numbers to Bangla digits (০-৯) in your final text summary.\n\n" +
+        "Weather Workflow:\n" +
+        "- When asked for weather, first use `get_coordinates` to find the location's latitude and longitude.\n" +
+        "- Then, use the `get_weather` tool with the coordinates and the location name.\n" +
+        "- Finally, summarize the weather in Bangla.",
     ),
     ...state.messages,
   ];
